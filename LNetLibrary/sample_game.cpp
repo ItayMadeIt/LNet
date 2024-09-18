@@ -1,6 +1,6 @@
-#include "NetworkMessage.hpp"
-#include "NetworkClient.hpp"
-#include "NetworkServer.hpp"
+#include "LNetMessage.hpp"
+#include "LNetClient.hpp"
+#include "LNetServer.hpp"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -27,7 +27,7 @@ enum class MessageType : uint32_t
 };
 
 // Server-side function to handle client messages
-void handleServerRead(lnet::NetworkServer<10>* server, std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<lnet::Message> msg, const asio::error_code& ec)
+void handleServerRead(lnet::LNetServer<10>* server, std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code& ec)
 {
     if (ec) {
         std::cerr << "Error reading from client: " << ec.message() << std::endl;
@@ -48,13 +48,13 @@ void handleServerRead(lnet::NetworkServer<10>* server, std::shared_ptr<asio::ip:
     logMessage(logEntry);
 
     // Respond with a formatted message
-    auto response = std::make_shared<lnet::Message>();
+    auto response = std::make_shared<lnet::LNetMessage>();
     response << (std::string("Type: " + std::to_string(type) + " Sentence: " + clientMessage + "\n"));
     server->sendAllClients(response);
 }
 
 // Client-side function to interact with the server
-void clientInteraction(lnet::NetworkClient& client)
+void clientInteraction(lnet::LNetClient& client)
 {
     std::cout << "Enter message type (1, 2, or 3): ";
     uint32_t msgType;
@@ -67,7 +67,7 @@ void clientInteraction(lnet::NetworkClient& client)
     std::getline(std::cin, userMessage);
 
     // Create and send the message
-    auto msg = std::make_shared<lnet::Message>();
+    auto msg = std::make_shared<lnet::LNetMessage>();
     msg << msgType << userMessage;
     client.send(msg);
 }
@@ -80,8 +80,8 @@ int main()
 
     if (mode == "server") {
         // Server code
-        lnet::NetworkServer<10> server(12345, 4,
-            [](lnet::NetworkServer<10>* server, std::shared_ptr<asio::ip::tcp::socket> client, const asio::error_code& ec) {
+        lnet::LNetServer<10> server(12345, 4,
+            [](lnet::LNetServer<10>* server, std::shared_ptr<asio::ip::tcp::socket> client, const asio::error_code& ec) {
                 if (!ec) {
                     std::cout << "New client connected!" << std::endl;
                 }
@@ -100,9 +100,9 @@ int main()
     }
     else if (mode == "client") {
         // Client code
-        lnet::NetworkClient client("127.0.0.1", 12345, 2,
+        lnet::LNetClient client("127.0.0.1", 12345, 2,
             nullptr,
-            [](lnet::NetworkClient* client, std::shared_ptr<lnet::Message> msg, const asio::error_code ec)
+            [](lnet::LNetClient* client, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code ec)
             {
                 std::string msgString;
                 msg >> msgString;

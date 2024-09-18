@@ -1,5 +1,5 @@
-#ifndef L_NETWORK_MSG_HPP
-#define L_NETWORK_MSG_HPP
+#ifndef LNET_MESSAGE_HPP
+#define LNET_MESSAGE_HPP
 
 #include <asio.hpp>
 
@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 #include <iomanip>
+#include "LNetEndianHandler.hpp"
 
 
 namespace lnet
@@ -16,98 +17,98 @@ namespace lnet
 	using LNetByte = uint8_t;
 	using LNet4Byte = uint32_t;
 
-#define LNET_TYPE_SIZE 4
-#define LNET_SIZE_SIZE 4
-#define LNET_HEADER_SIZE 8
+	constexpr size_t LNET_TYPE_SIZE = 4;
+	constexpr size_t LNET_SIZE_SIZE = 4;
+	constexpr size_t LNET_HEADER_SIZE = LNET_TYPE_SIZE + LNET_SIZE_SIZE;
 
-	class Message
+	// Define a packed header structure
+	#pragma pack(push, 1)
+	struct LNetHeader
+	{
+		LNet4Byte type;
+		LNet4Byte size;
+	};
+	#pragma pack(pop)
+
+	class LNetMessage
 	{
 	private:
-		alignas(4) LNet4Byte type;  // Align type on a 4-byte boundary
-		alignas(4) LNet4Byte size;  // Align size on a 4-byte boundary
-		std::vector<LNetByte> payload;  // Payload follows after
-		std::vector<LNetByte> messageData; // All values together
-
-		void updateMessageData()
-		{
-			messageData.resize(LNET_HEADER_SIZE + payload.size());
-			std::memcpy(messageData.data(), &type, LNET_HEADER_SIZE);
-			std::memcpy(messageData.data() + LNET_HEADER_SIZE, payload.data(), payload.size());
-		}
+		LNetHeader header;  // Combined header (type and size)
+		std::vector<LNetByte> payload;  // Payload follows after the header
+		size_t readPosition = 0; // To track the current read position in the payload
 
 	public:
-		// include type and size both 4 bytes
-		Message() : type(0), size(8)
-		{
-			payload.clear();
-		}
-		Message(LNet4Byte type) : type(type), size(8)
-		{
-			payload.clear();
-		}
+		LNetMessage() : header{ 0, LNET_HEADER_SIZE } {}  // Default constructor
 
-		Message(asio::mutable_buffer buffer)
-		{
-			// Include type and size both 4 bytes + payload size
-			size = buffer.size();
-			LNetByte* ptr = static_cast<LNetByte*>(buffer.data());
+		LNetMessage(LNet4Byte type) : header{ htonl(type), LNET_HEADER_SIZE } {}
 
-			payload = std::vector<LNetByte>(size - LNET_HEADER_SIZE);
-			std::memcpy(&type, ptr, LNET_TYPE_SIZE);
-			std::memcpy(&size, ptr + LNET_TYPE_SIZE, LNET_SIZE_SIZE);
-			std::memcpy(payload.data(), ptr + LNET_HEADER_SIZE, payload.size());
 
-			updateMessageData();
-		}
-		Message(asio::const_buffer buffer)
+		LNetMessage(asio::mutable_buffer buffer)
 		{
-			// Include type and size both 4 bytes + payload size
-			size = buffer.size();
+			if (buffer.size() < LNET_HEADER_SIZE)
+				throw std::runtime_error("Buffer too small to contain header.");
+
 			const LNetByte* ptr = static_cast<const LNetByte*>(buffer.data());
+			std::memcpy(&header, ptr, LNET_HEADER_SIZE);
+			header.type = ntohl(header.type);
+			header.size = ntohl(header.size);
 
-			payload = std::vector<LNetByte>(size - LNET_HEADER_SIZE);
-			std::memcpy(&type, ptr, LNET_TYPE_SIZE);
-			std::memcpy(&size, ptr + LNET_TYPE_SIZE, LNET_SIZE_SIZE);
-			std::memcpy(payload.data(), ptr + LNET_HEADER_SIZE, payload.size());
+			if (header.size > LNET_HEADER_SIZE)
+			{
+				payload.resize(header.size - LNET_HEADER_SIZE);
+				std::memcpy(payload.data(), ptr + LNET_HEADER_SIZE, payload.size());
+			}
+		}
+		LNetMessage(asio::const_buffer buffer)
+		{
+			if (buffer.size() < LNET_HEADER_SIZE)
+				throw std::runtime_error("Buffer too small to contain header.");
 
-			updateMessageData();
+			const LNetByte* ptr = static_cast<const LNetByte*>(buffer.data());
+			std::memcpy(&header, ptr, LNET_HEADER_SIZE);
+			header.type = ntohl(header.type);
+			header.size = ntohl(header.size);
+
+			if (header.size > LNET_HEADER_SIZE)
+			{
+				payload.resize(header.size - LNET_HEADER_SIZE);
+				std::memcpy(payload.data(), ptr + LNET_HEADER_SIZE, payload.size());
+			}
 		}
 
 		void setMsgType(LNet4Byte value)
 		{
-			type = value;
+			header.type = value;
 		}
 		void setMsgSize(LNet4Byte value)
 		{
-			size = value;
-			int payloadSize = size - LNET_HEADER_SIZE;
+			header.size = value;
+			int payloadSize = value - LNET_HEADER_SIZE;
 			payload.resize(payloadSize);
-			updateMessageData();
 		}
 		LNet4Byte getMsgType() const
 		{
-			return type;
+			return header.type;
 
 		}
 		LNet4Byte getMsgSize() const
 		{
-			return size;
+			return header.size;
 		}
 
-		LNetByte* getHeaderPtr() const
+		const LNetByte* getHeaderPtr() const
 		{
-			// return first value of the alligned header
-			return (LNetByte*)(&type);
+			return reinterpret_cast<const LNetByte*>(&header);
 		}
-		LNetByte* getPayloadPtr() const
+
+		LNetByte* getPayloadPtr()
 		{
-			// return first value of the alligned header
-			return (LNetByte*)payload.data();
+			return payload.data();
 		}
 
 		// Input values
 		template<typename T>
-		Message& operator <<(const T& value)
+		LNetMessage& operator <<(const T& value)
 		{
 			// Verify value can be converted
 			static_assert(std::is_trivial<T>::value && std::is_standard_layout<T>::value,
@@ -126,7 +127,7 @@ namespace lnet
 		}
 
 		// Input string
-		Message& operator <<(const std::string& value)
+		LNetMessage& operator <<(const std::string& value)
 		{
 			size_t sizeBefore = payload.size();
 			payload.resize(sizeBefore + (value.length() + 1));
@@ -142,7 +143,7 @@ namespace lnet
 
 		// Output values
 		template<typename T>
-		Message& operator >>(T& value)
+		LNetMessage& operator >>(T& value)
 		{
 			// Verify value can be converted
 			static_assert(std::is_trivial<T>::value && std::is_standard_layout<T>::value,
@@ -167,7 +168,7 @@ namespace lnet
 		}
 
 		// Output string 
-		Message& operator >>(std::string& value)
+		LNetMessage& operator >>(std::string& value)
 		{
 			size_t sizeBefore = payload.size();
 			auto nullTermPos = std::find(payload.begin(), payload.end(), '\0');
@@ -189,24 +190,40 @@ namespace lnet
 		}
 
 
-		// Turn into asio const buffer
-		asio::const_buffer constBuffer()
+		// Prepare data for network transmission (converts header to network byte order)
+		std::vector<asio::const_buffer> toConstBuffers()
 		{
-			updateMessageData();
+			// Create a network order header using the EndiannessHandler
+			LNetHeader netHeader;
+			netHeader.type = LNetEndiannessHandler::toBigEndian(header.type);
+			netHeader.size = LNetEndiannessHandler::toBigEndian(header.size);
 
-			return asio::buffer(static_cast<const void*>(messageData.data()), messageData.size());
+			std::vector<asio::const_buffer> buffers;
+			buffers.push_back(asio::buffer(&netHeader, sizeof(LNetHeader)));
+			if (!payload.empty())
+				buffers.push_back(asio::buffer(payload));
+
+			return buffers;
 		}
 
-		// Turn into asio mutable buffer
-		asio::mutable_buffer mutableBuffer()
+		// Prepare data for network transmission (converts header to network byte order)
+		std::vector<asio::mutable_buffer> toMutableBuffers()
 		{
-			updateMessageData();
+			// Create a network order header using the EndiannessHandler
+			LNetHeader netHeader;
+			netHeader.type = LNetEndiannessHandler::toBigEndian(header.type);
+			netHeader.size = LNetEndiannessHandler::toBigEndian(header.size);
 
-			return asio::buffer(messageData);
+			std::vector<asio::mutable_buffer> buffers;
+			buffers.push_back(asio::buffer(&netHeader, sizeof(LNetHeader)));
+			if (!payload.empty())
+				buffers.push_back(asio::buffer(payload));
+
+			return buffers;
 		}
 
 		// Print
-		friend std::ostream& operator<<(std::ostream& os, const Message& msg)
+		friend std::ostream& operator<<(std::ostream& os, const LNetMessage& msg)
 		{
 			os << "---------------------------------------------\n"\
 				"Type: " << msg.getMsgType() << '\n' <<
@@ -222,7 +239,7 @@ namespace lnet
 			return os;
 		}
 		// Print
-		friend std::ostream& operator<<(std::ostream& os, const std::shared_ptr<Message> msg)
+		friend std::ostream& operator<<(std::ostream& os, const std::shared_ptr<LNetMessage> msg)
 		{
 			os << "---------------------------------------------\n"\
 				"Type: " << msg->getMsgType() << '\n' <<
@@ -240,8 +257,8 @@ namespace lnet
 
 		void clear()
 		{
-			type = 0;
-			size = 0;
+			header.type = 0;
+			header.size = 0;
 			payload.clear();
 		}
 
@@ -249,8 +266,8 @@ namespace lnet
 
 
 	void asyncWriteMessage(std::shared_ptr<asio::ip::tcp::socket> socket,
-		std::shared_ptr<Message> msg,
-		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
+		std::shared_ptr<LNetMessage> msg,
+		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<LNetMessage>, const asio::error_code&)> callback = nullptr)
 	{
 		asio::const_buffer writeBuffer = msg->constBuffer();
 
@@ -268,9 +285,9 @@ namespace lnet
 	}
 
 	void asyncReadMessage(std::shared_ptr<asio::ip::tcp::socket> socket,
-		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
+		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<LNetMessage>, const asio::error_code&)> callback = nullptr)
 	{
-		auto msg = std::make_shared<Message>();
+		auto msg = std::make_shared<LNetMessage>();
 
 		// First catch the header 
 		asio::mutable_buffer headerBuffer = asio::buffer(msg->getHeaderPtr(), LNET_HEADER_SIZE);
@@ -324,8 +341,8 @@ namespace lnet
 		);
 	}
 
-	void syncWriteMessage(std::shared_ptr<asio::ip::tcp::socket> socket, std::shared_ptr<Message> sendMsg,
-		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
+	void syncWriteMessage(std::shared_ptr<asio::ip::tcp::socket> socket, std::shared_ptr<LNetMessage> sendMsg,
+		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<LNetMessage>, const asio::error_code&)> callback = nullptr)
 	{
 		asio::error_code ec;
 
@@ -339,11 +356,11 @@ namespace lnet
 	}
 
 	void syncReadMessage(std::shared_ptr<asio::ip::tcp::socket> socket,
-		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
+		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<LNetMessage>, const asio::error_code&)> callback = nullptr)
 	{
 		asio::error_code ec;
 
-		std::shared_ptr<Message> msg = std::make_shared<Message>();
+		std::shared_ptr<LNetMessage> msg = std::make_shared<LNetMessage>();
 
 		// First catch the header 
 		asio::mutable_buffer headerBuffer = asio::buffer(msg->getHeaderPtr(), LNET_HEADER_SIZE);
@@ -390,7 +407,7 @@ namespace lnet
 
 
 	template<typename T>
-	std::shared_ptr<Message>& operator <<(std::shared_ptr<Message>& msgPtr, const T& value)
+	std::shared_ptr<LNetMessage>& operator <<(std::shared_ptr<LNetMessage>& msgPtr, const T& value)
 	{
 		if (!msgPtr)
 		{
@@ -402,7 +419,7 @@ namespace lnet
 		return msgPtr;
 	}
 	template<typename T>
-	std::shared_ptr<Message>& operator >>(std::shared_ptr<Message>& msgPtr, T& value)
+	std::shared_ptr<LNetMessage>& operator >>(std::shared_ptr<LNetMessage>& msgPtr, T& value)
 	{
 		if (!msgPtr)
 		{

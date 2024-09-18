@@ -1,19 +1,19 @@
-#ifndef NETWORK_CLIENT_HPP
-#define NETWORK_CLIENT_HPP
+#ifndef LNET_CLIENT_HPP
+#define LNET_CLIENT_HPP
 
 #include <asio.hpp>
 #include <string>
 #include <memory>
 #include <unordered_map>
-#include "NetworkMessage.hpp"
+#include "LnetMessage.hpp"
 
 namespace lnet
 {
-	class NetworkClient;
+	class LNetClient;
 
-	using ClientMsgCallback = std::function<void(NetworkClient* client, std::shared_ptr<Message>)>;
+	using ClientMsgCallback = std::function<void(LNetClient* client, std::shared_ptr<LNetMessage>)>;
 
-	class NetworkClient
+	class LNetClient
 	{
 	private:
 		asio::io_context ioContext;
@@ -27,9 +27,9 @@ namespace lnet
 		std::atomic<bool> isConnected;
 
 		// Callback functions for each action
-		std::function<void(NetworkClient*, const asio::error_code ec)> connectedCallback;
-		std::function<void(NetworkClient*, std::shared_ptr<Message>, const asio::error_code ec)> readCallback;
-		std::function<void(NetworkClient*, std::shared_ptr<Message>, const asio::error_code ec)> writeCallback;
+		std::function<void(LNetClient*, const asio::error_code ec)> connectedCallback;
+		std::function<void(LNetClient*, std::shared_ptr<LNetMessage>, const asio::error_code ec)> readCallback;
+		std::function<void(LNetClient*, std::shared_ptr<LNetMessage>, const asio::error_code ec)> writeCallback;
 
 		// Read msg to callback
 		std::unordered_map<LNet4Byte, ClientMsgCallback> msgCallbacks;
@@ -39,13 +39,13 @@ namespace lnet
 			isConnected = true;
 
 			asyncReadMessage(socket,
-				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& err) {
+				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> msg, const asio::error_code& err) {
 					repeatRead(sock, msg, err);
 				}
 			);
 		}
 
-		void repeatRead(std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> readMsg, const asio::error_code& ec)
+		void repeatRead(std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> readMsg, const asio::error_code& ec)
 		{
 			// call callback based on type
 			if (!ec)
@@ -64,7 +64,7 @@ namespace lnet
 			}
 
 			asyncReadMessage(socket,
-				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& err) {
+				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> msg, const asio::error_code& err) {
 					repeatRead(sock, msg, err);
 				}
 			);
@@ -72,10 +72,10 @@ namespace lnet
 
 	public:
 
-		NetworkClient(std::string serverIp, unsigned short port, size_t threadsAmount = 2,
-			std::function<void(NetworkClient*, const asio::error_code ec)> connectedCallback = nullptr,
-			std::function<void(NetworkClient*, std::shared_ptr<Message>, const asio::error_code ec)> readCallback = nullptr,
-			std::function<void(NetworkClient*, std::shared_ptr<Message>, const asio::error_code ec)> writeCallback = nullptr) :
+		LNetClient(std::string serverIp, unsigned short port, size_t threadsAmount = 2,
+			std::function<void(LNetClient*, const asio::error_code ec)> connectedCallback = nullptr,
+			std::function<void(LNetClient*, std::shared_ptr<LNetMessage>, const asio::error_code ec)> readCallback = nullptr,
+			std::function<void(LNetClient*, std::shared_ptr<LNetMessage>, const asio::error_code ec)> writeCallback = nullptr) :
 			serverIp(serverIp), port(port), isConnected(false),
 			socket(std::make_shared<asio::ip::tcp::socket>(ioContext)),
 			connectedCallback(connectedCallback), readCallback(readCallback), writeCallback(writeCallback)
@@ -109,12 +109,12 @@ namespace lnet
 			);
 		}
 
-		void send(std::shared_ptr<Message> msg)
+		void send(std::shared_ptr<LNetMessage> msg)
 		{
 			asio::error_code ec;
 
 			asyncWriteMessage(socket, msg,
-				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
+				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> msg, const asio::error_code& ec)
 				{
 					if (writeCallback)
 					{
@@ -127,7 +127,7 @@ namespace lnet
 		template<typename... T>
 		void send(LNet4Byte type, T... params)
 		{
-			auto msg = std::make_shared<Message>(type);
+			auto msg = std::make_shared<LNetMessage>(type);
 
 			(void(msg->operator<<(params)), ...);
 
