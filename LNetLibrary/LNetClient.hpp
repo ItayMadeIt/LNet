@@ -15,7 +15,7 @@ namespace lnet
 
 	class LNetClient
 	{
-	private:
+	protected:
 		asio::io_context ioContext;
 		std::vector<std::unique_ptr<std::thread>> threads;
 
@@ -92,6 +92,11 @@ namespace lnet
 			}
 		}
 
+		bool getIsConnected()
+		{
+			return isConnected;
+		}
+
 		void connect()
 		{
 			socket->async_connect(asio::ip::tcp::endpoint(asio::ip::address::from_string(serverIp), port),
@@ -99,6 +104,7 @@ namespace lnet
 				{
 					if (!ec)
 					{
+						isConnected = true;
 						onConnectSuccesfully();
 					}
 					if (connectedCallback)
@@ -141,6 +147,8 @@ namespace lnet
 
 		void disconnect()
 		{
+			isConnected = false;
+
 			ioContext.stop();
 
 			for (size_t i = 0; i < threads.size(); i++)

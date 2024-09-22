@@ -84,3 +84,11 @@ Received message from client: Type: 3435973836 Message:
 Received message from client: Type: 3435973836 Message: 
 Received message from client: Type: 3435973836 Message: 
 Received message from client: Type: 3435973836 Message: 
+Received message from client: Type: 1 Message: abc
+Received message from client: Type: 1 Message: abc
+Received message from client: Type: 1 Message: h
+Received message from client: Type: 1 Message: k
+Received message from client: Type: 1 Message: 
+Received message from client: Type: 1 Message: abc
+Received message from client: Type: 1 Message: joker
+Received message from client: Type: 1 Message: andom

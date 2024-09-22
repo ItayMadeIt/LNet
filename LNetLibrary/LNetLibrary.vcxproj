@@ -131,9 +131,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="NetworkClient.hpp" />
-    <ClInclude Include="NetworkMessage.hpp" />
-    <ClInclude Include="NetworkServer.hpp" />
+    <ClInclude Include="LNetClient.hpp" />
+    <ClInclude Include="LNetEndianHandler.hpp" />
+    <ClInclude Include="LNetMessage.hpp" />
+    <ClInclude Include="LNetServer.hpp" />
+    <ClInclude Include="LNetTypes.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sample_game.cpp" />

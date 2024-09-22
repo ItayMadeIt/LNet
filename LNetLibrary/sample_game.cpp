@@ -18,60 +18,6 @@ void logMessage(const std::string& message)
     }
 }
 
-// Message types
-enum class MessageType : uint32_t
-{
-    Type1 = 1,
-    Type2 = 2,
-    Type3 = 3,
-};
-
-// Server-side function to handle client messages
-void handleServerRead(lnet::LNetServer<10>* server, std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code& ec)
-{
-    if (ec) {
-        std::cerr << "Error reading from client: " << ec.message() << std::endl;
-        return;
-    }
-
-    // Extract message type
-    uint32_t type;
-    msg >> type;
-
-    // Extract string payload
-    std::string clientMessage;
-    msg >> clientMessage;
-
-    // Log the interaction
-    std::string logEntry = "Received message from client: Type: " + std::to_string(type) + " Message: " + clientMessage;
-    std::cout << logEntry << std::endl;
-    logMessage(logEntry);
-
-    // Respond with a formatted message
-    auto response = std::make_shared<lnet::LNetMessage>();
-    response << (std::string("Type: " + std::to_string(type) + " Sentence: " + clientMessage + "\n"));
-    server->sendAllClients(response);
-}
-
-// Client-side function to interact with the server
-void clientInteraction(lnet::LNetClient& client)
-{
-    std::cout << "Enter message type (1, 2, or 3): ";
-    uint32_t msgType;
-    std::cin >> msgType;
-
-    std::cin.ignore(); // Clear the newline from the input buffer
-
-    std::cout << "Enter your message: ";
-    std::string userMessage;
-    std::getline(std::cin, userMessage);
-
-    // Create and send the message
-    auto msg = std::make_shared<lnet::LNetMessage>();
-    msg << msgType << userMessage;
-    client.send(msg);
-}
-
 int main()
 {
     std::string mode;
@@ -80,17 +26,18 @@ int main()
 
     if (mode == "server") {
         // Server code
-        lnet::LNetServer<10> server(12345, 4,
-            [](lnet::LNetServer<10>* server, std::shared_ptr<asio::ip::tcp::socket> client, const asio::error_code& ec) {
-                if (!ec) {
-                    std::cout << "New client connected!" << std::endl;
-                }
-            },
-            handleServerRead,
-            nullptr);
+        lnet::LNetServer<10> server(12345, 4);
 
         server.startServer();
         std::cout << "Server started on port 12345." << std::endl;
+
+        server.addMsgListener(1,
+            [](lnet::LNetServer<10>* server, std::shared_ptr < asio::ip::tcp::socket > client, std::shared_ptr<lnet::LNetMessage> msg)
+            {
+                msg->setMsgType(2);
+                server->sendAllClientsExcept(client, msg);
+            }
+        );
 
         // Keep the server running
         while (true) {
@@ -100,24 +47,34 @@ int main()
     }
     else if (mode == "client") {
         // Client code
-        lnet::LNetClient client("127.0.0.1", 12345, 2,
-            nullptr,
-            [](lnet::LNetClient* client, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code ec)
-            {
-                std::string msgString;
-                msg >> msgString;
-
-                std::cout << msgString << "\n";
-            });
-
+        lnet::LNetClient client("127.0.0.1", 12345, 2);
         client.connect();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        if (!client.getIsConnected())
+        {
+            std::cout << "FAILED TO ESTABLISH CONNECTION\n";
+            return 0;
+        }
 
+        client.addMsgListener(2,
+            [](lnet::LNetClient* client, std::shared_ptr<lnet::LNetMessage> msg)
+            {
+                std::string v;
+                msg >> v;
+                std::cout << "Client: " << v << std::endl;
+            }
+        );
         // Allow the client to send multiple messages
-        while (true) {
-            clientInteraction(client);
+        while (true) 
+        {
+            std::string userMessage;
+            std::getline(std::cin, userMessage);
+
+            // Create and send the message
+            client.send(1, userMessage);
+
             std::this_thread::sleep_for(std::chrono::microseconds(200));
         }
     }
-
     return 0;
 }

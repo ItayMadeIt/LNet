@@ -15,13 +15,19 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="NetworkMessage.hpp">
+    <ClInclude Include="LNetMessage.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="NetworkClient.hpp">
+    <ClInclude Include="LNetClient.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="NetworkServer.hpp">
+    <ClInclude Include="LNetServer.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LNetEndianHandler.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LNetTypes.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
