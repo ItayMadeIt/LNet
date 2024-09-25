@@ -32,7 +32,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="sample_game.cpp">
+    <ClCompile Include="unity_app.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

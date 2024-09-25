@@ -34,9 +34,9 @@ namespace lnet
 		// Read msg to callback
 		std::unordered_map<LNet4Byte, ClientMsgCallback> msgCallbacks;
 
-		void onConnectSuccesfully()
+		void handleConnection()
 		{
-			isConnected = true;
+			onConnect();
 
 			asyncReadMessage(socket,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> msg, const asio::error_code& err) {
@@ -45,23 +45,33 @@ namespace lnet
 			);
 		}
 
-		void repeatRead(std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> readMsg, const asio::error_code& ec)
+		virtual void onConnect()
+		{
+			isConnected = true;
+		}
+
+		virtual void onRead(std::shared_ptr<LNetMessage> msg, const asio::error_code& ec)
 		{
 			// call callback based on type
 			if (!ec)
 			{
-				auto it = msgCallbacks.find(readMsg->getMsgType());
+				auto it = msgCallbacks.find(msg->getMsgType());
 
 				if (it != msgCallbacks.end())
 				{
-					it->second(this, readMsg);
+					it->second(this, msg);
 				}
 			}
 
 			if (readCallback)
 			{
-				readCallback(this, readMsg, ec);
+				readCallback(this, msg, ec);
 			}
+		}
+
+		void repeatRead(std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> readMsg, const asio::error_code& ec)
+		{
+			onRead(readMsg, ec);
 
 			asyncReadMessage(socket,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<LNetMessage> msg, const asio::error_code& err) {
@@ -105,7 +115,7 @@ namespace lnet
 					if (!ec)
 					{
 						isConnected = true;
-						onConnectSuccesfully();
+						handleConnection();
 					}
 					if (connectedCallback)
 					{

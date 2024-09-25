@@ -57,9 +57,47 @@ namespace lnet
 		void continueAccept(const asio::error_code& ec,
 			std::shared_ptr<asio::ip::tcp::socket> client)
 		{
+			onNewConnection(client, ec);
+
+			asyncReadMessage(client,
+				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code& ec)
+				{
+					repeatRead(sock, msg, ec);
+				}
+			);
+
+			initAccept();
+		}
+
+		void repeatRead(std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<LNetMessage> readMsg, const asio::error_code ec)
+		{
+			recievedMessage(client, readMsg, ec);
+
+			asyncReadMessage(client,
+				[this, client](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code& ec)
+				{
+					if (ec != asio::error::eof && ec != asio::error::connection_reset)
+					{
+						repeatRead(sock, msg, ec);
+					}
+					else
+					{
+						for (size_t i = 0; i < clients.size(); i++) {
+							if (clients[i] == client) {
+								clients[i] = nullptr;
+								clientsAmount--;
+								break;
+							}
+						}
+					}
+				}
+			);
+		}
+		
+		virtual void onNewConnection(std::shared_ptr<asio::ip::tcp::socket> client, const asio::error_code& ec)
+		{
 			if (ec)
 			{
-				std::cout << "Error accepting new client. \n";
 				return;
 			}
 			else if (clientsAmount < maxClients)
@@ -75,52 +113,30 @@ namespace lnet
 			{
 				acceptCallback(this, client, ec);
 			}
-			asyncReadMessage(client,
-				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code& ec)
-				{
-					repeatRead(sock, msg, ec);
-				}
-			);
-
-			initAccept();
 		}
 
-		void repeatRead(std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<LNetMessage> readMsg, const asio::error_code ec)
+
+		virtual void recievedMessage(std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<lnet::LNetMessage> message, const asio::error_code& ec)
 		{
 			if (!ec)
 			{
-				if (msgCallbacks[readMsg->getMsgType()])
+				if (msgCallbacks[message->getMsgType()])
 				{
-					msgCallbacks[readMsg->getMsgType()](this, client, readMsg);
+					msgCallbacks[message->getMsgType()](this, client, message);
 				}
 			}
+
 			if (readCallback)
 			{
-				readCallback(this, client, readMsg, ec);
+				readCallback(this, client, message, ec);
 			}
-			asyncReadMessage(client,
-				[this, client](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::LNetMessage> msg, const asio::error_code& ec)
-				{
-					std::cout << "\nSERVER READ\n";
-					if (ec != asio::error::eof && ec != asio::error::connection_reset)
-					{
-						repeatRead(sock, msg, ec);
-					}
-					else
-					{
-						std::cout << "Client disconnected." << std::endl;
-
-						for (size_t i = 0; i < clients.size(); i++) {
-							if (clients[i] == client) {
-								clients[i] = nullptr;
-								clientsAmount--;
-								break;
-							}
-						}
-					}
-				}
-			);
 		}
+
+		virtual void onDisconnect(std::shared_ptr<asio::ip::tcp::socket> client)
+		{
+
+		}
+
 
 	public:
 		LNetServer(unsigned short port, size_t threadsAmount,
