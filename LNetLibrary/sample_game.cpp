@@ -18,7 +18,7 @@ void logMessage(const std::string& message)
     }
 }
 
-int main()
+int amain()
 {
     std::string mode;
     std::cout << "Start as (server/client): ";
