@@ -2,9 +2,7 @@
 #define LNET_MESSAGE_HPP
 
 #include <asio.hpp>
-
 #include <iostream>
-
 #include <vector>
 #include <cstdint>
 #include <memory>
@@ -394,7 +392,7 @@ namespace lnet
 	};
 
 
-	void asyncWriteMessage(std::shared_ptr<asio::ip::tcp::socket> socket,
+	void asyncWriteMessageTCP(std::shared_ptr<asio::ip::tcp::socket> socket,
 		std::shared_ptr<Message> msg,
 		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
 	{
@@ -403,17 +401,13 @@ namespace lnet
 		asio::async_write(*socket, writeBuffer,
 			[callback, socket, msg](const asio::error_code& ec, std::size_t size)
 			{
-				if (ec)
-				{
-					//std::cout << "Failed to write message: \n[" << ec.value() << "] : \'" << ec.message() << "\'\n";
-				}
-
 				if (callback) callback(socket, msg, ec);
 			}
 		);
 	}
 
-	void asyncReadMessage(std::shared_ptr<asio::ip::tcp::socket> socket,
+	
+	void asyncReadMessageTCP(std::shared_ptr<asio::ip::tcp::socket> socket,
 		std::function<void(std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
 	{
 		auto msg = std::make_shared<Message>();
@@ -426,8 +420,6 @@ namespace lnet
 			{
 				if (ec)
 				{
-					//std::cout << "Failed to read message header: \n[" << ec.value() << "] " << ec.message() << "\n";
-
 					if (callback)
 					{
 						callback(socket, msg, ec);
@@ -440,7 +432,7 @@ namespace lnet
 					throw std::runtime_error("Size of read was not enough to fit the header!\n");
 				}
 
-				// Get the header values from memory
+				// Make sure right endian structure
 				msg->setMsgType(LNetEndiannessHandler::fromNetworkEndian(msg->getMsgType()));
 				msg->setMsgSize(LNetEndiannessHandler::fromNetworkEndian(msg->getMsgSize()));
 
@@ -471,6 +463,83 @@ namespace lnet
 			}
 		);
 	}
+
+
+
+	void asyncWriteMessageTCP(std::shared_ptr<asio::ip::udp::socket> socket,
+		std::shared_ptr<Message> msg,
+		std::function<void(std::shared_ptr<asio::ip::udp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
+	{
+		std::vector<asio::const_buffer> writeBuffer = msg->toConstBuffers();
+
+		asio::async_write(*socket, writeBuffer,
+			[callback, socket, msg](const asio::error_code& ec, std::size_t size)
+			{
+				if (callback) callback(socket, msg, ec);
+			}
+		);
+	}
+
+
+	void asyncReadMessageTCP(std::shared_ptr<asio::ip::udp::socket> socket,
+		std::function<void(std::shared_ptr<asio::ip::udp::socket>, std::shared_ptr<Message>, const asio::error_code&)> callback = nullptr)
+	{
+		auto msg = std::make_shared<Message>();
+
+		// First catch the header 
+		asio::mutable_buffer headerBuffer = asio::buffer(reinterpret_cast<LNetByte*>(&msg->getHeader()), LNET_HEADER_SIZE);
+
+		asio::async_read(*socket, headerBuffer,
+			[socket, msg, callback](const asio::error_code& ec, std::size_t size)
+			{
+				if (ec)
+				{
+					if (callback)
+					{
+						callback(socket, msg, ec);
+					}
+					return;
+				}
+
+				if (size != LNET_HEADER_SIZE)
+				{
+					throw std::runtime_error("Size of read was not enough to fit the header!\n");
+				}
+
+				// Make sure right endian structure
+				msg->setMsgType(LNetEndiannessHandler::fromNetworkEndian(msg->getMsgType()));
+				msg->setMsgSize(LNetEndiannessHandler::fromNetworkEndian(msg->getMsgSize()));
+
+
+				std::size_t payloadSize = msg->getMsgSize() - LNET_HEADER_SIZE;
+				asio::mutable_buffer payloadBuffer = asio::buffer(msg->getPayload().data(), payloadSize);
+
+				asio::async_read(*socket, payloadBuffer,
+					[socket, msg, callback](const asio::error_code& ec, std::size_t size)
+					{
+						if (ec)
+						{
+							std::cout << "Failed to read message payload: \n[" << ec.value() << "] : \'" << ec.message() << "\'\n";
+							if (callback)
+							{
+								callback(socket, msg, ec);
+							}
+							return;
+						}
+
+						// Call callback
+						if (callback)
+						{
+							callback(socket, msg, ec);
+						}
+					}
+				);
+			}
+		);
+	}
+
+
+
 
 	template<typename T>
 	std::shared_ptr<Message>& operator <<(std::shared_ptr<Message>& msgPtr, const T& value)

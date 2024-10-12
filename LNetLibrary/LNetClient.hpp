@@ -38,7 +38,7 @@ namespace lnet
 		{
 			onConnect();
 
-			asyncReadMessage(socket,
+			asyncReadMessageTCP(socket,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& err) {
 					repeatRead(sock, msg, err);
 				}
@@ -73,7 +73,7 @@ namespace lnet
 		{
 			onRead(readMsg, ec);
 
-			asyncReadMessage(socket,
+			asyncReadMessageTCP(socket,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& err) {
 					repeatRead(sock, msg, err);
 				}
@@ -129,7 +129,7 @@ namespace lnet
 		{
 			asio::error_code ec;
 
-			asyncWriteMessage(socket, msg,
+			asyncWriteMessageTCP(socket, msg,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
 				{
 					if (writeCallback)

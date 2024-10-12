@@ -13,13 +13,10 @@
 
 namespace lnet
 {
-	template<size_t maxClients>
 	class Server;
 
-	template<size_t maxClients>
-	using ServerMsgCallback = std::function<void(Server<maxClients>*, std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<lnet::Message>)>;
+	using ServerMsgCallback = std::function<void(Server*, std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<lnet::Message>)>;
 
-	template<size_t maxClients>
 	class Server
 	{
 
@@ -34,13 +31,13 @@ namespace lnet
 		std::atomic<bool> isRunning = false;
 
 		asio::ip::tcp::acceptor acceptor;
-		std::array<std::shared_ptr<asio::ip::tcp::socket>, maxClients> clients;
+		std::vector<std::shared_ptr<asio::ip::tcp::socket>> clients;
 
 		std::function<void(Server*, std::shared_ptr<asio::ip::tcp::socket>, const asio::error_code& ec)> acceptCallback;
 		std::function<void(Server*, std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<lnet::Message>, const asio::error_code& ec)> readCallback;
 		std::function<void(Server*, std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<lnet::Message>, const asio::error_code& ec)> writeCallback;
 
-		std::map<LNet4Byte, ServerMsgCallback<maxClients>> msgCallbacks;
+		std::unordered_map<LNet4Byte, ServerMsgCallback> msgCallbacks;
 
 		void initAccept()
 		{
@@ -54,12 +51,11 @@ namespace lnet
 			);
 		}
 
-		void continueAccept(const asio::error_code& ec,
-			std::shared_ptr<asio::ip::tcp::socket> client)
+		void continueAccept(const asio::error_code& ec, std::shared_ptr<asio::ip::tcp::socket> client)
 		{
 			onNewConnection(client, ec);
 
-			asyncReadMessage(client,
+			asyncReadMessageTCP(client,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::Message> msg, const asio::error_code& ec)
 				{
 					repeatRead(sock, msg, ec);
@@ -73,7 +69,7 @@ namespace lnet
 		{
 			recievedMessage(client, readMsg, ec);
 
-			asyncReadMessage(client,
+			asyncReadMessageTCP(client,
 				[this, client](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::Message> msg, const asio::error_code& ec)
 				{
 					if (ec != asio::error::eof && ec != asio::error::connection_reset)
@@ -82,31 +78,41 @@ namespace lnet
 					}
 					else
 					{
-						for (size_t i = 0; i < clients.size(); i++) {
-							if (clients[i] == client) {
-								clients[i] = nullptr;
-								clientsAmount--;
-								break;
-							}
-						}
+						handleDisconnection(sock);
 					}
 				}
 			);
 		}
-		
+
+		void handleDisconnection(const std::shared_ptr<asio::ip::tcp::socket>& client)
+		{
+			auto it = std::find(clients.begin(), clients.end(), client);
+
+			if (it == clients.end())
+			{
+				assert("Trying to disconnect a client that isn't connected.");
+
+				return;
+			}
+
+			onDisconnect(client);
+
+			int index = it - clients.begin();
+
+			client->close();
+
+			clients[index] = nullptr;
+		}
+
 		virtual void onNewConnection(std::shared_ptr<asio::ip::tcp::socket> client, const asio::error_code& ec)
 		{
 			if (ec)
 			{
 				return;
 			}
-			else if (clientsAmount < maxClients)
-			{
-				clients[clientsAmount++] = client;
-			}
 			else
 			{
-				std::cout << "Max clients reached. Cannot accept more clients.\n";
+				clients.push_back(client);
 			}
 
 			if (acceptCallback)
@@ -132,9 +138,9 @@ namespace lnet
 			}
 		}
 
-		virtual void onDisconnect(std::shared_ptr<asio::ip::tcp::socket> client)
+		virtual void onDisconnect(const std::shared_ptr<asio::ip::tcp::socket>& client)
 		{
-
+			
 		}
 
 
@@ -177,7 +183,8 @@ namespace lnet
 			isRunning = true;
 
 			clientsAmount = 0;
-			acceptor.listen(maxClients);
+
+			acceptor.listen();
 
 			initAccept();
 
@@ -206,6 +213,7 @@ namespace lnet
 			}
 		}
 
+
 		bool sendClient(std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<Message> msg)
 		{
 			if (!client)
@@ -213,7 +221,7 @@ namespace lnet
 				return false;
 			}
 
-			asyncWriteMessage(client, msg,
+			asyncWriteMessageTCP(client, msg,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
 				{
 					if (writeCallback)
@@ -236,6 +244,7 @@ namespace lnet
 			return sendClient(client, msg);
 		}
 
+
 		void sendAllClients(std::shared_ptr<Message> msg)
 		{
 			for (auto& client : clients)
@@ -245,7 +254,7 @@ namespace lnet
 					continue;
 				}
 
-				asyncWriteMessage(client, msg,
+				asyncWriteMessageTCP(client, msg,
 					[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
 					{
 						if (writeCallback)
@@ -267,6 +276,7 @@ namespace lnet
 			sendAllClients(msg);
 		}
 
+
 		void sendAllClientsExcept(std::shared_ptr<asio::ip::tcp::socket> exceptClient, std::shared_ptr<Message> msg)
 		{
 			for (auto& client : clients)
@@ -276,7 +286,7 @@ namespace lnet
 					continue;
 				}
 
-				asyncWriteMessage(client, msg,
+				asyncWriteMessageTCP(client, msg,
 					[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
 					{
 						if (writeCallback)
@@ -298,7 +308,8 @@ namespace lnet
 			sendAllClientsExcept(exceptClient, msg);
 		}
 	
-		void addMsgListener(LNet4Byte type, ServerMsgCallback<maxClients> callback)
+
+		void addMsgListener(LNet4Byte type, ServerMsgCallback callback)
 		{
 			msgCallbacks[type] = callback;
 		}

@@ -10,9 +10,10 @@ const size_t THREADS = 3;
 
 int main()
 {
-	Server<CLIENTS_AMOUNT> server = Server<CLIENTS_AMOUNT>(PORT, THREADS);
+	Server server = Server(PORT, THREADS);
 
 	server.startServer();
+
 
 
 	server.stopServer();
