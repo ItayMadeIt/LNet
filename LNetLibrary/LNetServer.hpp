@@ -104,6 +104,7 @@ namespace lnet
 			clients[index] = nullptr;
 		}
 
+
 		virtual void onNewConnection(std::shared_ptr<asio::ip::tcp::socket> client, const asio::error_code& ec)
 		{
 			if (ec)
@@ -120,7 +121,6 @@ namespace lnet
 				acceptCallback(this, client, ec);
 			}
 		}
-
 
 		virtual void recievedMessage(std::shared_ptr<asio::ip::tcp::socket> client, std::shared_ptr<lnet::Message> message, const asio::error_code& ec)
 		{

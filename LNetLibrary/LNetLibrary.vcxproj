@@ -135,7 +135,9 @@
     <ClInclude Include="LNetEndianHandler.hpp" />
     <ClInclude Include="LNetMessage.hpp" />
     <ClInclude Include="LNetServer.hpp" />
+    <ClInclude Include="LNetTCP.hpp" />
     <ClInclude Include="LNetTypes.hpp" />
+    <ClInclude Include="LNetUDP.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sample_game.cpp" />
