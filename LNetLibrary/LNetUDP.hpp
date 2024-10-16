@@ -11,89 +11,6 @@ namespace lnet
 	class UDP
 	{
 	public:
-		template<typename... Args>
-		static void asyncSend(std::shared_ptr<UDPSocket> socket, UDPEndpoint& ep,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			auto msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			socket->async_send_to(sendBuffer, ep);
-		}
-
-		template<typename... Args>
-		static void asyncSend(std::shared_ptr<UDPSocket> socket, UDPEndpoint& ep,
-			std::function<void(std::shared_ptr<UDPSocket>, std::shared_ptr<Message>, const asio::error_code&)> callback,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			auto msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			socket->async_send_to(sendBuffer, ep,
-				[callback, socket, msg](const asio::error_code ec, size_t size)
-				{
-					// try call callback
-					if (callback) callback(socket, msg, ec);
-				}
-			);
-		}
-
-		template<typename... Args>
-		static void asyncSend(UDPSocket& socket, UDPEndpoint& ep,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			auto msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			socket.async_send_to(sendBuffer, ep);
-		}
-
-		template<typename... Args>
-		static void asyncSend(UDPSocket& socket, UDPEndpoint& ep,
-			std::function<void(UDPSocket& socket, std::shared_ptr<Message>, const asio::error_code&)> callback,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			auto msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			socket.async_send_to(sendBuffer, ep);
-			[callback, socket, msg](const asio::error_code ec, size_t size)
-				{
-					// try call callback
-					if (callback) callback(socket, msg, ec);
-				}
-			);
-		}
-
-
-		template<typename... Args>
-		static void asyncSend(std::shared_ptr<UDPSocket> socket, UDPEndpoint& ep,
-			std::shared_ptr<Message> msg)
-		{
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			socket->async_send_to(sendBuffer, ep);
-		}
-
-		template<typename... Args>
 		static void asyncSend(std::shared_ptr<UDPSocket> socket, UDPEndpoint& ep,
 			std::function<void(std::shared_ptr<UDPSocket>, std::shared_ptr<Message>, const asio::error_code&)> callback,
 			std::shared_ptr<Message> msg)
@@ -111,35 +28,22 @@ namespace lnet
 			);
 		}
 
-		template<typename... Args>
 		static void asyncSend(UDPSocket& socket, UDPEndpoint& ep,
+			std::function<void(UDPSocket&, std::shared_ptr<Message>, const asio::error_code&)> callback,
 			std::shared_ptr<Message> msg)
 		{
 			// make it into buffers
 			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
 
 			// send
-			socket.async_send_to(sendBuffer, ep);
-		}
-
-		template<typename... Args>
-		static void asyncSend(UDPSocket& socket, UDPEndpoint& ep,
-			std::function<void(UDPSocket& socket, std::shared_ptr<Message>, const asio::error_code&)> callback,
-			std::shared_ptr<Message> msg)
-		{
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			socket.async_send_to(sendBuffer, ep);
-			[callback, socket, msg](const asio::error_code ec, size_t size)
+			socket.async_send_to(sendBuffer, ep,
+				[callback, &socket, msg](const asio::error_code ec, size_t size)
 				{
 					// try call callback
 					if (callback) callback(socket, msg, ec);
 				}
 			);
 		}
-
 
 
 		static void asyncRead(std::shared_ptr<UDPSocket> socket, 

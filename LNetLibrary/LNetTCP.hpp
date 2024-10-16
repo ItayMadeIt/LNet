@@ -12,89 +12,6 @@ namespace lnet
 	class TCP
 	{
 	public:
-		template<typename... Args>
-		static void asyncSend(std::shared_ptr<TCPSocket> socket,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			auto msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			asio::async_write(*socket, sendBuffer);
-		}
-
-		template<typename... Args>
-		static void asyncSend(std::shared_ptr<TCPSocket> socket,
-			std::function<void(std::shared_ptr<TCPSocket>, std::shared_ptr<Message>, const asio::error_code&)> callback,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			std::shared_ptr<Message> msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			asio::async_write(*socket, sendBuffer,
-				[callback, socket, msg](const asio::error_code ec, size_t size)
-				{
-					// try call callback
-					if (callback) callback(socket, msg, ec);
-				}
-			);
-		}
-
-		template<typename... Args>
-		static void asyncSend(TCPSocket& socket,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			auto msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			asio::async_write(socket, sendBuffer);
-		}
-
-		template<typename... Args>
-		static void asyncSend(TCPSocket& socket,
-			std::function<void(TCPSocket& socket, std::shared_ptr<Message>, const asio::error_code&)> callback,
-			const LNet4Byte& type, Args... args)
-		{
-			// create message
-			std::shared_ptr<Message> msg = Message::createByArgs(type, args);
-
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			asio::async_write(socket, sendBuffer,
-				[callback, socket, msg](const asio::error_code ec, size_t size)
-				{
-					// try call callback
-					if (callback) callback(socket, msg, ec);
-				}
-			);
-		}
-	
-
-		template<typename... Args>
-		static void asyncSend(std::shared_ptr<TCPSocket> socket,
-			std::shared_ptr<Message>& msg)
-		{
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			asio::async_write(*socket, sendBuffer);
-		}
-
-		template<typename... Args>
 		static void asyncSend(std::shared_ptr<TCPSocket> socket,
 			std::function<void(std::shared_ptr<TCPSocket>, std::shared_ptr<Message>, const asio::error_code&)> callback,
 			std::shared_ptr<Message>& msg)
@@ -112,18 +29,6 @@ namespace lnet
 			);
 		}
 
-		template<typename... Args>
-		static void asyncSend(TCPSocket& socket,
-			std::shared_ptr<Message>& msg)
-		{
-			// make it into buffers
-			std::vector<asio::const_buffer> sendBuffer = msg->toConstBuffers();
-
-			// send
-			asio::async_write(socket, sendBuffer);
-		}
-
-		template<typename... Args>
 		static void asyncSend(TCPSocket& socket,
 			std::function<void(TCPSocket& socket, std::shared_ptr<Message>, const asio::error_code&)> callback,
 			std::shared_ptr<Message>& msg)
@@ -133,14 +38,13 @@ namespace lnet
 
 			// send
 			asio::async_write(socket, sendBuffer,
-				[callback, socket, msg](const asio::error_code ec, size_t size)
+				[callback, &socket, msg](const asio::error_code ec, size_t size)
 				{
 					// try call callback
 					if (callback) callback(socket, msg, ec);
 				}
 			);
 		}
-
 
 
 		static void asyncRead(std::shared_ptr<TCPSocket> socket,
@@ -152,7 +56,7 @@ namespace lnet
 			asio::mutable_buffer headerBuffer = asio::buffer(reinterpret_cast<LNetByte*>(&msg->getHeader()), LNET_HEADER_SIZE);
 
 			asio::async_read(*socket, headerBuffer,
-				[socket, msg, callback](asio::error_code& ec, std::size_t size)
+				[socket, msg, callback](const asio::error_code& ec, std::size_t size)
 				{
 					if (ec)
 					{
@@ -187,7 +91,7 @@ namespace lnet
 			asio::mutable_buffer headerBuffer = asio::buffer(reinterpret_cast<LNetByte*>(&msg->getHeader()), LNET_HEADER_SIZE);
 
 			asio::async_read(socket, headerBuffer,
-				[&socket, msg, callback](const asio::error_code& ec, std::size_t size)
+				[&, msg, callback](const asio::error_code& ec, std::size_t size)
 				{
 					if (ec)
 					{

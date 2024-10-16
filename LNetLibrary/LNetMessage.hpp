@@ -131,6 +131,8 @@ namespace lnet
 			auto msg = std::make_shared<Message>(type);
 
 			(void(msg->operator<<(args)), ...);
+
+			return msg;
 		}
 
 
@@ -147,7 +149,9 @@ namespace lnet
 			buffers.push_back(asio::buffer(&netHeader, sizeof(MessageHeader)));
 
 			if (readPosition < payload.size())
+			{ 
 				buffers.push_back(asio::buffer(payload.data() + readPosition, payload.size() - readPosition));
+			}
 
 			return buffers;
 		}
@@ -162,7 +166,6 @@ namespace lnet
 
 			std::vector<asio::mutable_buffer> buffers;
 			buffers.push_back(asio::buffer(&netHeader, sizeof(MessageHeader)));
-
 			if (!payload.empty())
 			{
 				buffers.push_back(asio::buffer(payload.data() + readPosition, payload.size() - readPosition));
@@ -201,6 +204,20 @@ namespace lnet
 			std::memcpy(payload.data() + sizeBefore, value.c_str(), value.length() + 1);
 
 			header.size += value.length() + 1;
+
+			return *this;
+		}
+
+
+		// Input const char* as string
+		Message& operator <<(const char* value)
+		{
+			size_t sizeBefore = payload.size();
+			payload.resize(sizeBefore + (std::strlen(value) + 1));
+
+			std::memcpy(payload.data() + sizeBefore, value, std::strlen(value) + 1);
+
+			header.size += std::strlen(value) + 1;
 
 			return *this;
 		}
@@ -296,14 +313,15 @@ namespace lnet
 		Message& operator >>(std::string& value)
 		{
 			size_t sizeBefore = payload.size();
-			auto nullTermPos = std::find(payload.begin(), payload.end(), '\0');
+			auto nullTermPos = std::find(payload.begin() + readPosition, payload.end(), '\0');
 
-			if (nullTermPos == payload.end()) {
+			if (nullTermPos == payload.end()) 
+			{
 				throw std::runtime_error("No null terminator found, string is incomplete.");
 			}
 
-			size_t stringLength = nullTermPos - payload.begin();
-			value.assign(reinterpret_cast<const char*>(payload.data()), stringLength);
+			size_t stringLength = nullTermPos - (payload.begin() + readPosition);
+			value.assign(reinterpret_cast<const char*>(payload.data() + readPosition), stringLength);
 
 			readPosition += stringLength + 1;
 

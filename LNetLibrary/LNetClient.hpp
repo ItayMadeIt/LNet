@@ -8,6 +8,7 @@
 #include "LNetMessage.hpp"
 #include "LNetTCP.hpp"
 #include "LNetUDP.hpp"
+#include "LNetConnection.hpp"
 
 namespace lnet
 {
@@ -19,13 +20,13 @@ namespace lnet
 	{
 	protected:
 		asio::io_context ioContext;
+		asio::executor_work_guard<asio::io_context::executor_type> workGuard;
 		std::vector<std::unique_ptr<std::thread>> threads;
 
 		std::string serverIp;
 		unsigned short port;
 
-		std::shared_ptr<TCPSocket> tcpSocket;
-		std::shared_ptr<UDPSocket> udpSocket;
+		std::shared_ptr<Connection> connection;
 
 		std::atomic<bool> isConnected;
 
@@ -43,25 +44,10 @@ namespace lnet
 		{
 			isConnected = true;
 
-			// Try bind it to have the same values as the TCP socket
-			try
-			{
-				udpSocket->bind(
-					UDPEndpoint(tcpSocket->local_endpoint().address(), tcpSocket->local_endpoint().port())
-				);
-			}
-			catch (const std::exception& e)
-			{
-				// If failed, bind to any available port
-				udpSocket->bind(
-					UDPEndpoint(tcpSocket->local_endpoint().address(), 0)
-				);
-			}
-
 			onConnect();
 
-			repeatReadTCP(tcpSocket);
-			repeatReadUDP(udpSocket);
+			repeatReadTCP();
+			//repeatReadUDP();
 		}
 
 		virtual void onConnect()
@@ -71,6 +57,7 @@ namespace lnet
 
 		virtual void onRead(bool isReliable, std::shared_ptr<Message> msg, const asio::error_code& ec)
 		{
+
 			// call callback based on type
 			if (!ec)
 			{
@@ -82,28 +69,27 @@ namespace lnet
 			if (readCallback) readCallback(this, isReliable, msg, ec);
 		}
 
-		void repeatReadTCP(std::shared_ptr<TCPSocket> sock)
+		void repeatReadTCP()
 		{
-			TCP::asyncRead(sock,
-				[this](std::shared_ptr<TCPSocket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec) 
+			TCP::asyncRead(connection->tcpSocket,
+				[this](TCPSocket& sock, std::shared_ptr<Message> msg, const asio::error_code& ec) 
 				{
 					onRead(true, msg, ec);
 
-					repeatReadTCP(sock);
+					repeatReadTCP();
 				}
 			);
 		}
 
-		void repeatReadUDP(std::shared_ptr<UDPSocket> sock)
+		void repeatReadUDP()
 		{
-			UDP::asyncRead(sock,
-				[this](std::shared_ptr<UDPSocket> sock, UDPEndpoint& ep, std::shared_ptr<Message> msg, const asio::error_code& ec)
+			UDP::asyncRead(connection->udpSocket, 
+				[this](UDPSocket& sock, UDPEndpoint& ep, std::shared_ptr<Message> msg, const asio::error_code& ec)
 				{
 					// endpoint does nothing, we are a client so the server sent us the message
-
 					onRead(false, msg, ec);
 
-					repeatReadUDP(sock);
+					repeatReadUDP();
 				}
 			);
 		}
@@ -115,9 +101,11 @@ namespace lnet
 			std::function<void(Client*, bool, std::shared_ptr<Message>, const asio::error_code ec)> readCallback = nullptr,
 			std::function<void(Client*, bool, std::shared_ptr<Message>, const asio::error_code ec)> writeCallback = nullptr) :
 			serverIp(serverIp), port(port), isConnected(false),
-			tcpSocket(std::make_shared<TCPSocket>(ioContext)),
+			workGuard(asio::make_work_guard(ioContext)),
 			connectedCallback(connectedCallback), readCallback(readCallback), writeCallback(writeCallback)
 		{
+			connection = nullptr;
+
 			for (size_t i = 0; i < threadsAmount; i++)
 			{
 				threads.push_back(
@@ -137,27 +125,34 @@ namespace lnet
 
 		void connect()
 		{
-			tcpSocket->async_connect(asio::ip::tcp::endpoint(asio::ip::address::from_string(serverIp), port),
+			connection = std::make_shared<Connection>(ioContext);
+			
+			connection->connect(serverIp, port,
 				[this](const asio::error_code& ec)
 				{
-					if (!ec)
-					{
-						handleConnection();
-
-
-					}
 					if (connectedCallback)
 					{
 						connectedCallback(this, ec);
+					}
+
+					if (!ec)
+					{
+						handleConnection();
+					}
+					else
+					{
+						connection = nullptr;
+						throw std::runtime_error("Connection failed");
 					}
 				}
 			);
 		}
 
+
 		void sendTCP(std::shared_ptr<Message> msg)
 		{
-			TCP::asyncSend(tcpSocket,
-				[this](std::shared_ptr<TCPSocket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
+			TCP::asyncSend(connection->tcpSocket,
+				[this](TCPSocket& sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
 				{
 					if (writeCallback)
 						writeCallback(this, true, msg, ec);
@@ -169,22 +164,16 @@ namespace lnet
 		template<typename... T>
 		void sendTCP(LNet4Byte type, T... params)
 		{
-			TCP::asyncSend(tcpSocket,
-				[this](std::shared_ptr<TCPSocket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
-				{
-					if (writeCallback)
-						writeCallback(this, true, msg, ec);
-				},
-				type, std::forward<T>(params)...
-			);
+			auto msg = Message::createByArgs(type, params...);
+
+			sendTCP(msg);
 		}
 
-		/* UDP DOESNT WORK YET
+
 		void sendUDP(std::shared_ptr<Message> msg)
 		{
-			UDP::asyncSend(udpSocket, UDPEndpoint()
-				UDPEndpoint(tcpSocket->remote_endpoint().address(), tcpSocket->remote_endpoint().port()),
-				[this](std::shared_ptr<TCPSocket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
+			UDP::asyncSend(connection->udpSocket, connection->udpRemoteEndpoint,
+				[this](UDPSocket& sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
 				{
 					if (writeCallback)
 						writeCallback(this, true, msg, ec);
@@ -196,24 +185,26 @@ namespace lnet
 		template<typename... T>
 		void sendUDP(LNet4Byte type, T... params)
 		{
-			TCP::asyncSend(tcpSocket,
-				[this](std::shared_ptr<TCPSocket> sock, std::shared_ptr<Message> msg, const asio::error_code& ec)
-				{
-					if (writeCallback)
-						writeCallback(this, true, msg, ec);
-				},
-				type, std::forward<T>(params)...
-			);
-		}*/
+			// create message
+			auto msg = Message::createByArgs(type, params);
 
+			sendUDP(msg);
+		}
+
+		
 		void addMsgListener(LNet4Byte type, ClientMsgCallback callback)
 		{
 			msgCallbacks[type] = callback;
 		}
 
+
 		void disconnect()
 		{
+			connection = nullptr;
+
 			isConnected = false;
+
+			workGuard.reset();
 
 			ioContext.stop();
 

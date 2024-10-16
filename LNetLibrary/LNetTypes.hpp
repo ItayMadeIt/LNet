@@ -11,6 +11,7 @@ namespace lnet
 	using LNet4Byte = uint32_t;
 
 	using TCPSocket = asio::ip::tcp::socket;
+	using TCPEndpoint = asio::ip::tcp::endpoint;
 
 	using UDPSocket = asio::ip::udp::socket;
 	using UDPEndpoint = asio::ip::udp::endpoint;

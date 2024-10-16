@@ -15,7 +15,7 @@ namespace lnet
 {
 	class Server;
 
-	using ServerMsgCallback = std::function<void(Server*, std::shared_ptr<asio::ip::tcp::socket>, std::shared_ptr<lnet::Message>)>;
+	using ServerMsgCallback = std::function<void(Server*, std::shared_ptr<TCPSocket>, std::shared_ptr<lnet::Message>)>;
 
 	class Server
 	{
@@ -55,7 +55,7 @@ namespace lnet
 		{
 			onNewConnection(client, ec);
 
-			asyncReadMessageTCP(client,
+			TCP::asyncRead(client,
 				[this](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::Message> msg, const asio::error_code& ec)
 				{
 					repeatRead(sock, msg, ec);
@@ -69,7 +69,7 @@ namespace lnet
 		{
 			recievedMessage(client, readMsg, ec);
 
-			asyncReadMessageTCP(client,
+			TCP::asyncRead(client,
 				[this, client](std::shared_ptr<asio::ip::tcp::socket> sock, std::shared_ptr<lnet::Message> msg, const asio::error_code& ec)
 				{
 					if (ec != asio::error::eof && ec != asio::error::connection_reset)
