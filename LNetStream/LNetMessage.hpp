@@ -10,26 +10,38 @@
 #include "LNetEndianHandler.hpp"
 #include <functional>
 
-
 namespace lnet
 {
-	static const void printPacket(const ENetPacket* packet)
+	struct MessageIdentifier
 	{
-		std::cout << "Packet size: " << packet->dataLength << " bytes" << std::endl;
-		std::cout << "Packet data (hex): ";
+		LNetByte channel;
+		LNet2Byte type;
 
-		for (size_t i = 0; i < packet->dataLength; ++i)
+		MessageIdentifier(const LNetByte& channel, const LNet2Byte& type) :
+			channel(channel), type(type)
+		{ }
+
+		bool operator==(const MessageIdentifier& other) const
 		{
-			printf("%02X ", packet->data[i]);
+			return channel == other.channel && type == other.type;
 		}
+	};
 
-		std::cout << std::endl;
-	}
+	struct HashMessageIdentifier
+	{
+		std::size_t operator()(const MessageIdentifier& identifier) const
+		{
+			return std::hash<LNet2Byte>()(identifier.type) ^ 
+				std::hash<LNetByte>()(identifier.channel);
+		}
+	};
+
+
 
 	constexpr size_t LNET_CHANNEL_SIZE = 1;
 	constexpr size_t LNET_TYPE_SIZE = 2;
 	constexpr size_t LNET_SIZE_SIZE = 4;
-	constexpr size_t LNET_HEADER_SIZE = LNET_CHANNEL_SIZE + LNET_TYPE_SIZE + LNET_SIZE_SIZE;
+	constexpr size_t LNET_HEADER_SIZE = LNET_TYPE_SIZE + LNET_SIZE_SIZE;
 
 	enum class MessageSizes
 	{
@@ -43,18 +55,15 @@ namespace lnet
 	struct MessageHeader
 	{
 		MessageHeader(const LNetByte& channel, const LNet2Byte& type, const LNet4Byte& size)
-			: channel(channel), type(type), size(size)
+			: identifier(channel, type), size(size)
 		{ }
-		MessageHeader() 
-		{
-			channel = 0;
-			type = 0;
-			size = 0;
-		}
+		MessageHeader(const MessageIdentifier & identifier, const LNet4Byte & size)
+			: identifier(identifier), size(size)
+		{ }
+		MessageHeader() : identifier(0, 0), size(0)
+		{ }
 
-
-		LNetByte channel;
-		LNet2Byte type;
+		MessageIdentifier identifier;
 		LNet4Byte size;
 	};
 #pragma pack(pop)
@@ -70,10 +79,35 @@ namespace lnet
 
 		Message(const bool& isReliable, const LNetByte& channel, const LNet2Byte& type) : isReliable(isReliable), header{ channel, type, 0 } {}
 
-		Message(const LNetByte* arr, const size_t length) : isReliable(true)
+		Message(const MessageIdentifier& identifier) : isReliable(true), header{ identifier, 0 } {}
+
+		Message(const bool& isReliable, const MessageIdentifier& identifier) : isReliable(isReliable), header{ identifier, 0 } {}
+
+		Message(const LNetByte* arr, const size_t& length) : isReliable(true)
 		{
-			std::memcpy(&header, arr, LNET_HEADER_SIZE);
-			header.type = LNetEndiannessHandler::fromNetworkEndian(header.type);
+			// copy from memory the first 2 values, type and size
+			std::memcpy(&header.identifier.type, arr, LNET_TYPE_SIZE);
+			std::memcpy(&header.size, arr + LNET_TYPE_SIZE, LNET_SIZE_SIZE);
+
+			header.identifier.type = LNetEndiannessHandler::fromNetworkEndian(header.identifier.type);
+			header.size = LNetEndiannessHandler::fromNetworkEndian(header.size);
+
+			if (header.size > 0)
+			{
+				payload.resize(header.size);
+				std::memcpy(payload.data(), arr + LNET_HEADER_SIZE, payload.size());
+			}
+		}
+
+		Message(const LNetByte* arr, const size_t& length, const LNetByte& channel) : isReliable(true)
+		{
+			header.identifier.channel = channel;
+
+			// copy from memory the first 2 values, type and size
+			std::memcpy(&header.identifier.type, arr, LNET_TYPE_SIZE);
+			std::memcpy(&header.size, arr + LNET_TYPE_SIZE, LNET_SIZE_SIZE);
+
+			header.identifier.type = LNetEndiannessHandler::fromNetworkEndian(header.identifier.type);
 			header.size = LNetEndiannessHandler::fromNetworkEndian(header.size);
 
 			if (header.size > 0)
@@ -87,11 +121,11 @@ namespace lnet
 		// GETTERS AND SETTERS
 		void setMsgChannel(const LNetByte& value)
 		{
-			header.channel = value;
+			header.identifier.channel = value;
 		}
 		void setMsgType   (const LNet2Byte& value)
 		{
-			header.type = value;
+			header.identifier.type = value;
 		}
 		void setMsgSize   (const LNet4Byte& value)
 		{
@@ -103,13 +137,17 @@ namespace lnet
 			isReliable = value;
 		}
 
+		const MessageIdentifier& getMsgIdentifier() const
+		{
+			return header.identifier;
+		}
 		const LNetByte& getMsgChannel() const
 		{
-			return header.channel;
+			return header.identifier.channel;
 		}
 		const LNet2Byte& getMsgType() const
 		{
-			return header.type;
+			return header.identifier.type;
 
 		}
 		const LNet4Byte& getMsgSize() const
@@ -164,19 +202,21 @@ namespace lnet
 		{
 			// I hope it resizes it
 			std::shared_ptr<std::vector<LNetByte>> buffer = 
-				std::make_shared< std::vector<LNetByte>>(sizeof(MessageHeader) + header.size);
+				std::make_shared< std::vector<LNetByte>>(LNET_HEADER_SIZE + header.size);
 
 			// Create a network order header using the EndiannessHandler
 			MessageHeader netHeader(
-				LNetEndiannessHandler::toNetworkEndian(header.type),
+				LNetEndiannessHandler::toNetworkEndian(header.identifier.channel),
+				LNetEndiannessHandler::toNetworkEndian(header.identifier.type),
 				LNetEndiannessHandler::toNetworkEndian(header.size)
 			);
 
-			memcpy(buffer->data(), &netHeader, sizeof(MessageHeader));
+			memcpy(buffer->data(), &netHeader.identifier.type, sizeof(LNet2Byte));
+			memcpy(buffer->data() + sizeof(LNet2Byte), &netHeader.size, sizeof(LNet4Byte));
 
 			if (readPosition < payload.size())
 			{
-				memcpy(buffer->data() + sizeof(MessageHeader) + readPosition, payload.data(), payload.size() - readPosition);
+				memcpy(buffer->data() + sizeof(LNet2Byte) + sizeof(LNet4Byte), payload.data(), payload.size() - readPosition);
 			}
 
 			return buffer;
@@ -454,8 +494,8 @@ namespace lnet
 		// reset function
 		void reset(LNetByte channel=0, LNet2Byte type=0)
 		{
-			header.channel = channel;
-			header.type = type;
+			header.identifier.channel = 0;
+			header.identifier.type = 0;
 			header.size = 0;
 			payload.clear();
 		}
@@ -469,7 +509,7 @@ namespace lnet
 		std::vector<LNetByte> payload;  // Payload follows after the header
 		size_t readPosition = 0; // To track the current read position in the payload
 		MessageSizes inputSize = MessageSizes::Size4Byte;
-		MessageSizes outputSize = MessageSizes::Size4Byte;
+		MessageSizes outputSize = MessageSizes::Size4Byte;          
 	};
 
 
@@ -517,7 +557,4 @@ namespace lnet
 	}
 
 }
-
-
-
 #endif

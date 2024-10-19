@@ -74,22 +74,19 @@ namespace lnet
 				{
 					case ENET_EVENT_TYPE_CONNECT:
 					{
-						std::cout << "Server got connection\n";
-
+						std::cout << "Server-connection\n";
 						handleConnect(event);
 						break;
 					}
 					case ENET_EVENT_TYPE_DISCONNECT:
 					{
-						std::cout << "Server got disconnected\n";
-
+						std::cout << "Server-disconnection\n";
 						handleDisconnect(event);
 						break;
 					}
 					case ENET_EVENT_TYPE_RECEIVE:
 					{
-						std::cout << "Server got packet\n";
-
+						std::cout << "Server-receive\n";
 						handleReceive(event);
 						enet_packet_destroy(event.packet);
 						break;
@@ -132,13 +129,13 @@ namespace lnet
 			enet_deinitialize();
 		}
 
-		void setMessageCallback(const LNet2Byte& type, const LNetReadCallback& func)
+		void setMessageCallback(const MessageIdentifier& identifier, const LNetReadCallback& func)
 		{
-			messageCallbacks[type] = func;
+			messageCallbacks[identifier] = func;
 		}
-		void removeMessageCallback(const LNet2Byte& type)
+		void removeMessageCallback(const MessageIdentifier& identifier)
 		{
-			messageCallbacks.erase(type);
+			messageCallbacks.erase(identifier);
 		}
 
 		void sendClient(const LNet4Byte& clientID, const Message& message)
@@ -166,12 +163,11 @@ namespace lnet
 		
 		void sendBroadcastExcept(const LNet4Byte& clientID, const Message& message)
 		{
-			ENetPacket* packet = message.toNetworkPacket();
-			
 			for (auto& client : clients)
 			{
 				if (client.first != clientID)
 				{
+					ENetPacket* packet = message.toNetworkPacket();
 					enet_peer_send(client.second,
 						message.getMsgChannel(),
 						packet);
@@ -182,12 +178,12 @@ namespace lnet
 		void sendReliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
 		{
 			Message message = Message::createByArgs(true, channel, type, args...);  
-			ENetPacket* packet = message.toNetworkPacket();
 
 			for (auto& client : clients)
 			{
 				if (client.first != excludedClientID)
 				{
+		 			ENetPacket* packet = message.toNetworkPacket();
 					enet_peer_send(client.second, channel, packet);
 				}
 			}
@@ -196,12 +192,12 @@ namespace lnet
 		void sendUnreliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
 		{
 			Message message = Message::createByArgs(false, channel, type, args...); 
-			ENetPacket* packet = message.toNetworkPacket();
 
 			for (auto& client : clients)
 			{
 				if (client.first != excludedClientID)
 				{
+					ENetPacket* packet = message.toNetworkPacket();
 					enet_peer_send(client.second, channel, packet);
 				}
 			}
@@ -266,13 +262,13 @@ namespace lnet
 		/// <param name="event"></param>
 		void handleReceive(const ENetEvent& event)
 		{
-			Message message(event.packet->data, event.packet->dataLength);
+			Message message(event.packet->data, event.packet->dataLength, event.channelID);
 
 			// Call message callback if exists
-			std::unordered_map<LNet4Byte, LNetReadCallback>::iterator it = messageCallbacks.find(message.getMsgType());
+			auto it = messageCallbacks.find(message.getMsgIdentifier());
 			if (it != messageCallbacks.end())
 			{
-				it->second((LNet4Byte)event.peer->data, message);
+				it->second((LNetByte)event.peer->data, message);
 			}
 		}
 
@@ -308,7 +304,7 @@ namespace lnet
 		LNet4Byte currentClientID = 0;
 		
 		// Message callbacks
-		std::unordered_map<LNet4Byte, LNetReadCallback> messageCallbacks;
+		std::unordered_map<MessageIdentifier, LNetReadCallback, HashMessageIdentifier> messageCallbacks;
 
 	};
 }

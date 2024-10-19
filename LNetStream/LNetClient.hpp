@@ -16,11 +16,21 @@ namespace lnet
 		// server address
 		ENetAddress address;
 
-		ClientSettings(const LNetByte& channels) : channels(channels)
+		ClientSettings(const LNetByte& channels) : channels(channels), address()
 		{
 			// only if channels has a correct value
 			assert(channels < 255);
 		}
+		ClientSettings(const LNetByte& channels, const LNet2Byte& port, const std::string& ip) : channels(channels)		
+		{
+			setAddress(port, ip);
+		}
+		void setAddress(const LNet2Byte& port, const std::string& ip)
+		{
+			address.port = port;
+			enet_address_set_host_ip(&address, ip.c_str());
+		}
+
 	};
 
 	using LNetReadCallback = std::function<void(Message&)>;
@@ -28,14 +38,6 @@ namespace lnet
 	class Client
 	{
 	public:
-
-		void tempSend()
-		{
-			Message msg(true, 88, 88);
-			ENetPacket* newPacket = msg.toNetworkPacket();
-			
-			enet_peer_send(connection, 88, newPacket);
-		}
 
 		Client(const LNetByte& channels = 16) : 
 			settings(channels),
@@ -50,8 +52,7 @@ namespace lnet
 
 		void connect(const LNet2Byte& port, const std::string& ip)
 		{
-			enet_address_set_host_ip(&settings.address, ip.c_str());
-			settings.address.port = port;
+			settings.setAddress(port, ip);
 
 			// create host
 			host = enet_host_create(nullptr, 1, settings.channels, 0, 0);
@@ -84,18 +85,20 @@ namespace lnet
 				{
 					case ENET_EVENT_TYPE_CONNECT:
 					{
-						std::cout << "Client got connection\n";
-
+						// nothing for now
+						std::cout << "Client-connection\n";
 						break;
 					}
 					case ENET_EVENT_TYPE_DISCONNECT:
 					{
-						std::cout << "Client got disconnection\n";
+						// nothing for now
+						std::cout << "Client-disconnection\n";
 						break;
 					}
 					case ENET_EVENT_TYPE_RECEIVE:
 					{
-						std::cout << "Client got packet\n";
+						std::cout << "Client-receive\n";
+						handleReceive(event);
 						enet_packet_destroy(event.packet);
 						break;
 					}
@@ -120,37 +123,41 @@ namespace lnet
 			enet_deinitialize();
 		}
 
+
+
 		void send(const Message& message)
 		{
 			ENetPacket* packet = message.toNetworkPacket();
 
-			enet_peer_send(&host->peers[0],
+			enet_peer_send(connection,
 				message.getMsgChannel(),
 				packet);
 		}
 
 		template<typename... Args>
-		void sendReliable(const LNetByte& channel, const LNet2Byte& type, const Args&... args)
+		void sendReliable(const MessageIdentifier& identifier, const Args&... args)
 		{
-			Message message = Message::createByArgs(true, channel, type, args...);
+			Message message = Message::createByArgs(true, identifier.channel, identifier.type, args...);
 
 			ENetPacket* packet = message.toNetworkPacket();
 
-			enet_peer_send(&host->peers[0],
-				channel,
-				packet);
+			enet_peer_send(connection,
+				identifier.channel,
+				packet
+			);
 		}
 
 		template<typename... Args>
-		void sendUnreliable(const LNetByte& channel, const LNet2Byte& type, const Args&... args)
+		void sendUnreliable(const MessageIdentifier& identifier, const Args&... args)
 		{
-			Message message = Message::createByArgs(false, channel, type, args...);
+			Message message = Message::createByArgs(false, identifier.channel, identifier.type, args...);
 
 			ENetPacket* packet = message.toNetworkPacket();
 
-			enet_peer_send(&host->peers[0],
-				channel,
-				packet);
+			enet_peer_send(connection,
+				identifier.channel,
+				packet
+			);
 			
 		}
 
@@ -166,18 +173,33 @@ namespace lnet
 
 	private:
 
+		/// <summary>
+		/// Handle receiving message of a message
+		/// </summary>
+		/// <param name="event"></param>
+		void handleReceive(const ENetEvent& event)
+		{
+			Message message(event.packet->data, event.packet->dataLength, event.channelID);
+
+			// Call message callback if exists
+			auto it = messageCallbacks.find(message.getMsgIdentifier());
+			if (it != messageCallbacks.end())
+			{
+				it->second(message);
+			}
+		}
+
+	private:
 		// Connection data
 		ClientSettings settings;
-
 
 		// Enet 
 		ENetHost* host;
 
 		ENetPeer* connection;
 
-
 		// Message callbacks
-		std::unordered_map<LNet4Byte, LNetReadCallback> messageCallbacks;
+		std::unordered_map<MessageIdentifier, LNetReadCallback, HashMessageIdentifier> messageCallbacks;
 	};
 
 }
