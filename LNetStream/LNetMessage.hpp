@@ -17,6 +17,9 @@ namespace lnet
 		LNetByte channel;
 		LNet2Byte type;
 
+		MessageIdentifier() : channel(0), type(0)
+		{ }
+
 		MessageIdentifier(const LNetByte& channel, const LNet2Byte& type) :
 			channel(channel), type(type)
 		{ }
@@ -37,11 +40,8 @@ namespace lnet
 	};
 
 
-
 	constexpr size_t LNET_CHANNEL_SIZE = 1;
 	constexpr size_t LNET_TYPE_SIZE = 2;
-	constexpr size_t LNET_SIZE_SIZE = 4;
-	constexpr size_t LNET_HEADER_SIZE = LNET_TYPE_SIZE + LNET_SIZE_SIZE;
 
 	enum class MessageSizes
 	{
@@ -50,70 +50,52 @@ namespace lnet
 		Size4Byte = 4,
 	};
 
-	// Define a packed header structure
-#pragma pack(push, 1)
-	struct MessageHeader
-	{
-		MessageHeader(const LNetByte& channel, const LNet2Byte& type, const LNet4Byte& size)
-			: identifier(channel, type), size(size)
-		{ }
-		MessageHeader(const MessageIdentifier & identifier, const LNet4Byte & size)
-			: identifier(identifier), size(size)
-		{ }
-		MessageHeader() : identifier(0, 0), size(0)
-		{ }
-
-		MessageIdentifier identifier;
-		LNet4Byte size;
-	};
-#pragma pack(pop)
-
 	class Message
 	{
 	public:
 		// CONSTRUCTORS
 		
-		Message() {}  // Default constructor
+		Message() : isReliable(true) {}  // Default constructor
 
-		Message(const LNet2Byte& type, const LNetByte& channel = 0) : isReliable(true), header{ channel, type, 0 } {}
+		Message(const LNet2Byte& type, const LNetByte& channel = 0) : isReliable(true), identifier{ channel, type} {}
 
-		Message(const bool& isReliable, const LNetByte& channel, const LNet2Byte& type) : isReliable(isReliable), header{ channel, type, 0 } {}
+		Message(const bool& isReliable, const LNetByte& channel, const LNet2Byte& type) : isReliable(isReliable), identifier(channel, type) {}
 
-		Message(const MessageIdentifier& identifier) : isReliable(true), header{ identifier, 0 } {}
+		Message(const MessageIdentifier& identifier) : isReliable(true), identifier(identifier) {}
 
-		Message(const bool& isReliable, const MessageIdentifier& identifier) : isReliable(isReliable), header{ identifier, 0 } {}
+		Message(const bool& isReliable, const MessageIdentifier& identifier) : isReliable(isReliable), identifier(identifier) {}
 
 		Message(const LNetByte* arr, const size_t& length) : isReliable(true)
 		{
-			// copy from memory the first 2 values, type and size
-			std::memcpy(&header.identifier.type, arr, LNET_TYPE_SIZE);
-			std::memcpy(&header.size, arr + LNET_TYPE_SIZE, LNET_SIZE_SIZE);
+			// copy from memory the first value, type (as size can be calculated)
+			std::memcpy(&identifier.type, arr, LNET_TYPE_SIZE);
 
-			header.identifier.type = LNetEndiannessHandler::fromNetworkEndian(header.identifier.type);
-			header.size = LNetEndiannessHandler::fromNetworkEndian(header.size);
+			identifier.type = LNetEndiannessHandler::fromNetworkEndian(identifier.type);
 
-			if (header.size > 0)
+			size_t payloadSize = length -  LNET_TYPE_SIZE;
+
+			if (payloadSize > 0)
 			{
-				payload.resize(header.size);
-				std::memcpy(payload.data(), arr + LNET_HEADER_SIZE, payload.size());
+				payload.resize(payloadSize);
+				std::memcpy(payload.data(), arr + LNET_TYPE_SIZE, payload.size());
 			}
 		}
 
 		Message(const LNetByte* arr, const size_t& length, const LNetByte& channel) : isReliable(true)
 		{
-			header.identifier.channel = channel;
+			identifier.channel = channel;
 
 			// copy from memory the first 2 values, type and size
-			std::memcpy(&header.identifier.type, arr, LNET_TYPE_SIZE);
-			std::memcpy(&header.size, arr + LNET_TYPE_SIZE, LNET_SIZE_SIZE);
+			std::memcpy(&identifier.type, arr, LNET_TYPE_SIZE);
 
-			header.identifier.type = LNetEndiannessHandler::fromNetworkEndian(header.identifier.type);
-			header.size = LNetEndiannessHandler::fromNetworkEndian(header.size);
+			identifier.type = LNetEndiannessHandler::fromNetworkEndian(identifier.type);
 
-			if (header.size > 0)
+			size_t payloadSize = length - LNET_TYPE_SIZE;
+
+			if (payloadSize > 0)
 			{
-				payload.resize(header.size);
-				std::memcpy(payload.data(), arr + LNET_HEADER_SIZE, payload.size());
+				payload.resize(payloadSize);
+				std::memcpy(payload.data(), arr + LNET_TYPE_SIZE, payload.size());
 			}
 		}
 
@@ -121,15 +103,14 @@ namespace lnet
 		// GETTERS AND SETTERS
 		void setMsgChannel(const LNetByte& value)
 		{
-			header.identifier.channel = value;
+			identifier.channel = value;
 		}
 		void setMsgType   (const LNet2Byte& value)
 		{
-			header.identifier.type = value;
+			identifier.type = value;
 		}
 		void setMsgSize   (const LNet4Byte& value)
 		{
-			header.size = value;
 			payload.resize(value);
 		}
 		void setIsReliable(const bool& value)
@@ -139,31 +120,26 @@ namespace lnet
 
 		const MessageIdentifier& getMsgIdentifier() const
 		{
-			return header.identifier;
+			return identifier;
 		}
 		const LNetByte& getMsgChannel() const
 		{
-			return header.identifier.channel;
+			return identifier.channel;
 		}
 		const LNet2Byte& getMsgType() const
 		{
-			return header.identifier.type;
+			return identifier.type;
 
 		}
 		const LNet4Byte& getMsgSize() const
 		{
-			return header.size;
+			return payload.size() + LNET_TYPE_SIZE;
 		}
 		const bool& getIsReliable() const
 		{
 			return isReliable;
 		}
 		
-		const MessageHeader& getHeader() const
-		{
-			return header;
-		}
-
 		const std::vector<LNetByte>& getPayload() const
 		{
 			return payload;
@@ -185,7 +161,7 @@ namespace lnet
 		}
 
 		template<typename... Args>
-		static Message createByArgs(const bool& isReliable, const LNetByte& channel, const LNet4Byte& type, const Args&... args)
+		static Message createByArgs(const bool& isReliable, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
 		{
 			auto msg = Message(isReliable, channel, type);
 
@@ -202,21 +178,16 @@ namespace lnet
 		{
 			// I hope it resizes it
 			std::shared_ptr<std::vector<LNetByte>> buffer = 
-				std::make_shared< std::vector<LNetByte>>(LNET_HEADER_SIZE + header.size);
+				std::make_shared< std::vector<LNetByte>>(LNET_TYPE_SIZE + payload.size());
 
 			// Create a network order header using the EndiannessHandler
-			MessageHeader netHeader(
-				LNetEndiannessHandler::toNetworkEndian(header.identifier.channel),
-				LNetEndiannessHandler::toNetworkEndian(header.identifier.type),
-				LNetEndiannessHandler::toNetworkEndian(header.size)
-			);
+			LNet2Byte netType = LNetEndiannessHandler::toNetworkEndian(identifier.type);
 
-			memcpy(buffer->data(), &netHeader.identifier.type, sizeof(LNet2Byte));
-			memcpy(buffer->data() + sizeof(LNet2Byte), &netHeader.size, sizeof(LNet4Byte));
+			memcpy(buffer->data(), &netType, LNET_TYPE_SIZE);
 
 			if (readPosition < payload.size())
 			{
-				memcpy(buffer->data() + sizeof(LNet2Byte) + sizeof(LNet4Byte), payload.data(), payload.size() - readPosition);
+				memcpy(buffer->data() + LNET_TYPE_SIZE, payload.data(), payload.size() - readPosition);
 			}
 
 			return buffer;
@@ -253,8 +224,6 @@ namespace lnet
 
 			std::memcpy(payload.data() + sizeBefore, &value, sizeof(T));
 
-			header.size += sizeof(T);
-
 			return *this;
 		}
 
@@ -266,8 +235,6 @@ namespace lnet
 
 			std::memcpy(payload.data() + sizeBefore, value.c_str(), value.length() + 1);
 
-			header.size += value.length() + 1;
-
 			return *this;
 		}
 
@@ -278,8 +245,6 @@ namespace lnet
 			payload.resize(sizeBefore + (std::strlen(value) + 1));
 
 			std::memcpy(payload.data() + sizeBefore, value, std::strlen(value) + 1);
-
-			header.size += std::strlen(value) + 1;
 
 			return *this;
 		}
@@ -365,8 +330,6 @@ namespace lnet
 
 			readPosition += sizeof(T);
 
-			header.size -= sizeof(T);
-
 			return *this;
 		}
 
@@ -386,13 +349,11 @@ namespace lnet
 
 			readPosition += stringLength + 1;
 
-			header.size -= stringLength + 1;
-
 			return *this;
 		}
 
 		// Define output size
-		Message& operator >>(const MessageSizes size)
+		Message& operator >>(const MessageSizes& size)
 		{
 			outputSize = size;
 		}
@@ -407,25 +368,25 @@ namespace lnet
 			// gather length
 			switch (outputSize)
 			{
-			case lnet::MessageSizes::Size1Byte:
-			{
-				*this >> length;
-				break;
-			}
-			case lnet::MessageSizes::Size2Byte:
-			{
-				*this >> length;
-				break;
-			}
-			case lnet::MessageSizes::Size4Byte:
-			{
-				*this >> length;
-				break;
-			}
-			default:
-			{
-				throw std::runtime_error("Undefined Message List Size");
-			}
+				case lnet::MessageSizes::Size1Byte:
+				{
+					*this >> (LNetByte&)length;
+					break;
+				}
+				case lnet::MessageSizes::Size2Byte:
+				{
+					*this >> (LNet2Byte&)length;
+					break;
+				}
+				case lnet::MessageSizes::Size4Byte:
+				{
+					*this >> (LNet4Byte&)length;
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Undefined Message List Size");
+				}
 			}
 
 			// set list length
@@ -454,6 +415,7 @@ namespace lnet
 		friend std::ostream& operator<<(std::ostream& os, const Message& msg)
 		{
 			os << "---------------------------------------------\n"\
+				"Channel: " << msg.getMsgChannel() << '\n' <<
 				"Type: " << msg.getMsgType() << '\n' <<
 				"Length: " << msg.getMsgSize() << '\n' <<
 				"-----------------------------------------------\n"\
@@ -469,40 +431,23 @@ namespace lnet
 			
 			return os;
 		}
-		// Print
-		friend std::ostream& operator<<(std::ostream& os, const std::shared_ptr<Message> msg)
+		friend std::ostream& operator<<(std::ostream& os, std::shared_ptr<Message>& msg)
 		{
-			os << "---------------------------------------------\n"\
-				"Type: " << msg->getMsgType() << '\n' <<
-				"Length: " << msg->getMsgSize() << '\n' <<
-				"-----------------------------------------------\n"\
-				"PAYLOAD: \n";
-
-			for (size_t i = 0; i < msg->getMsgSize() - LNET_HEADER_SIZE; i++)
-			{
-				os << std::hex << std::setw(2) << std::setfill('0') << (int)(msg->getPayload()[i]) << " ";
-			}
-
-			os << std::dec;
-
-			os << "-----------------------------------------------\n";
-
-			return os;
+			return os << *msg;
 		}
 
 
 		// reset function
 		void reset(LNetByte channel=0, LNet2Byte type=0)
 		{
-			header.identifier.channel = 0;
-			header.identifier.type = 0;
-			header.size = 0;
+			identifier.channel = 0;
+			identifier.type = 0;
 			payload.clear();
 		}
 
 	private:
 		
-		MessageHeader header;  // Combined header (channel ID, type and size)
+		MessageIdentifier identifier;
 		
 		bool isReliable;
 		
