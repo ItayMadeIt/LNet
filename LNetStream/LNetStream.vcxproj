@@ -149,7 +149,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="LNetClient.cpp" />
+    <ClCompile Include="LNetEndianHandler.cpp" />
     <ClCompile Include="LNetMessage.cpp" />
+    <ClCompile Include="LNetServer.cpp" />
     <ClCompile Include="Source.cpp" />
   </ItemGroup>
   <ItemGroup>

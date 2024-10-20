@@ -33,201 +33,38 @@ namespace lnet
 	{
 	public:
 		Server(const LNet4Byte& maxConnections = 1000,
-			const LNetByte& channels = 16) : 
-			settings(maxConnections, channels), 
-			currentClientID(0),
-			host(nullptr)
-		{
-			if (enet_initialize() != 0)
-			{
-				std::cerr << "An error occurred while initializing ENet (Server).\n";
-				return;
-			}
-		}
+			const LNetByte& channels = 16);
 		
 		using LNetReadCallback = std::function<void(const LNet4Byte&, Message&)>;
 
-		void init(const LNet2Byte& port)
-		{
-			settings.address.host = ENET_HOST_ANY;
-			settings.address.port = port; 
+		void listen(const LNet2Byte& port);
 
-			// create host
-			host = enet_host_create(&settings.address, settings.maxConnections, settings.channels, 0, 0);
-
-			if (!host)
-			{
-				throw std::runtime_error("Couldn't create server.");
-			}
-
-			std::cout << "Initialized server\n";
-		}
-
-		void tick()
-		{
-			ENetEvent event;
-			while (enet_host_service(host, &event, 0) > 0)
-			{
-				std::cout << "~got event~\n";
-
-				switch (event.type)
-				{
-					case ENET_EVENT_TYPE_CONNECT:
-					{
-						std::cout << "Server-connection\n";
-						handleConnect(event);
-						break;
-					}
-					case ENET_EVENT_TYPE_DISCONNECT:
-					{
-						std::cout << "Server-disconnection\n";
-						handleDisconnect(event);
-						break;
-					}
-					case ENET_EVENT_TYPE_RECEIVE:
-					{
-						std::cout << "Server-receive\n";
-						handleReceive(event);
-						enet_packet_destroy(event.packet);
-						break;
-					}
-					default:
-					{
-						std::cout << "Unknown event in the server.\n" << 
-							"Peer DATA: " << event.peer->data << 
-							"Type: " << event.type << 
-							"Channel" << event.channelID << 
-							"packet" << event.packet;
-					}
-				}
-			}
-		}
+		void tick();
 		
-		void terminate()
-		{
-			std::cout << "Server got terminated\n";
+		void terminate();
 
-			if (host) 
-			{
-				for (ENetPeer* peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
-				{
-					if (peer->state == ENET_PEER_STATE_CONNECTED)
-					{
-						enet_peer_timeout(peer, 32, 500, 1000);  // Shorten timeout
-						enet_peer_disconnect(peer, 0);  // Send disconnect message
-					}
-				}
-				enet_host_flush(host);
+		void setMessageCallback(const MessageIdentifier& identifier, const LNetReadCallback& func);
+		void removeMessageCallback(const MessageIdentifier& identifier);
 
-				enet_host_destroy(host);
-
-				host = nullptr;
-			}
-
-			clients.clear();
-
-			enet_deinitialize();
-		}
-
-		void setMessageCallback(const MessageIdentifier& identifier, const LNetReadCallback& func)
-		{
-			messageCallbacks[identifier] = func;
-		}
-		void removeMessageCallback(const MessageIdentifier& identifier)
-		{
-			messageCallbacks.erase(identifier);
-		}
-
-		void sendClient(const LNet4Byte& clientID, const Message& message)
-		{
-			ENetPacket* packet = message.toNetworkPacket();
-
-			enet_peer_send(clients[clientID], 
-				message.getMsgChannel(), 
-				packet);
-		}
+		void sendClient(const LNet4Byte& clientID, const Message& message);
 		template<typename... Args>
-		void sendReliableClient(const LNet4Byte& clientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
-		{
-			Message message = Message::createByArgs(true, channel, type, args...);
-			ENetPacket* packet = message.toNetworkPacket();
-			enet_peer_send(clients[clientID], channel, packet);
-		}
+		void sendReliableClient(const LNet4Byte& clientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args);
 		template<typename... Args>
-		void sendUnreliableClient(const LNet4Byte& clientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
-		{
-			Message message = Message::createByArgs(false, channel, type, args...); 
-			ENetPacket* packet = message.toNetworkPacket();
-			enet_peer_send(clients[clientID], channel, packet);
-		}
+		void sendUnreliableClient(const LNet4Byte& clientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args);
 		
-		void sendBroadcastExcept(const LNet4Byte& clientID, const Message& message)
-		{
-			for (auto& client : clients)
-			{
-				if (client.first != clientID)
-				{
-					ENetPacket* packet = message.toNetworkPacket();
-					enet_peer_send(client.second,
-						message.getMsgChannel(),
-						packet);
-				}
-			}
-		}
+		void sendBroadcastExcept(const LNet4Byte& clientID, const Message& message);
 		template<typename... Args>
-		void sendReliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
-		{
-			Message message = Message::createByArgs(true, channel, type, args...);  
-
-			for (auto& client : clients)
-			{
-				if (client.first != excludedClientID)
-				{
-		 			ENetPacket* packet = message.toNetworkPacket();
-					enet_peer_send(client.second, channel, packet);
-				}
-			}
-		}
+		void sendReliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args);
 		template<typename... Args>
-		void sendUnreliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args)
-		{
-			Message message = Message::createByArgs(false, channel, type, args...); 
-
-			for (auto& client : clients)
-			{
-				if (client.first != excludedClientID)
-				{
-					ENetPacket* packet = message.toNetworkPacket();
-					enet_peer_send(client.second, channel, packet);
-				}
-			}
-		}
+		void sendUnreliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args&... args);
 		
-		void sendBroadcast(const Message& message)
-		{
-			ENetPacket* packet = message.toNetworkPacket();
-
-			enet_host_broadcast(host, message.getMsgChannel(), packet);
-		}
+		void sendBroadcast(const Message& message);
 		template<typename... Args>
-		void sendReliableBroadcast(const LNetByte& channel, const LNet2Byte& type, const Args&... args)
-		{
-			Message message = Message::createByArgs(true, channel, type, args...);  // Create reliable message
-			ENetPacket* packet = message.toNetworkPacket();
-			enet_host_broadcast(host, channel, packet);
-		}
+		void sendReliableBroadcast(const LNetByte& channel, const LNet2Byte& type, const Args&... args);
 		template<typename... Args>
-		void sendUnreliableBroadcast(const LNetByte& channel, const LNet2Byte& type, const Args&... args)
-		{
-			Message message = Message::createByArgs(false, channel, type, args...);  // Create unreliable message
-			ENetPacket* packet = message.toNetworkPacket();
-			enet_host_broadcast(host, channel, packet);
-		}
+		void sendUnreliableBroadcast(const LNetByte& channel, const LNet2Byte& type, const Args&... args);
 
-		~Server()
-		{
-			terminate();
-		}
+		~Server();
 
 	private:
 
@@ -235,60 +72,25 @@ namespace lnet
 		/// Handle the connection and saves it in the clients object
 		/// </summary>
 		/// <param name="event"></param>
-		void handleConnect(const ENetEvent& event)
-		{
-			LNet4Byte id = newClientID();
-
-			clients[id] = event.peer;
-
-			event.peer->data = reinterpret_cast<void*>(id);
-		}
+		void handleConnect(const ENetEvent& event);
 
 		/// <summary>
 		/// Handle the disconnection of a peer, and removes it from the clients
 		/// </summary>
 		/// <param name="event"></param>
-		void handleDisconnect(const ENetEvent& event)
-		{
-			LNet4Byte clientID = reinterpret_cast<LNet4Byte>(event.peer->data);
-
-			possibleIDs.push(clientID);
-			clients.erase(clientID);
-		}
+		void handleDisconnect(const ENetEvent& event);
 
 		/// <summary>
 		/// Handle receiving message of a message
 		/// </summary>
 		/// <param name="event"></param>
-		void handleReceive(const ENetEvent& event)
-		{
-			Message message(event.packet->data, event.packet->dataLength, event.channelID);
-
-			// Call message callback if exists
-			auto it = messageCallbacks.find(message.getMsgIdentifier());
-			if (it != messageCallbacks.end())
-			{
-				it->second((LNetByte)event.peer->data, message);
-			}
-		}
+		void handleReceive(const ENetEvent& event);
 
 		/// <summary>
 		/// Uses a binary search to find the lowest value that the clients ID do not use
 		/// </summary>
 		/// <returns>The ID as LNet4Byte (4 Bytes of possible IDs)</returns>
-		const LNet4Byte newClientID()
-		{
-			if (!possibleIDs.empty())
-			{
-				LNet4Byte reusedID = possibleIDs.front();
-
-				possibleIDs.pop();
-
-				return reusedID;
-			}
-
-			return currentClientID++;
-		}
+		const LNet4Byte newClientID();
 	
 
 	private:
@@ -307,6 +109,68 @@ namespace lnet
 		std::unordered_map<MessageIdentifier, LNetReadCallback, HashMessageIdentifier> messageCallbacks;
 
 	};
+
+	// template sending functions
+
+	template<typename ...Args>
+	void Server::sendReliableClient(const LNet4Byte& clientID, const LNetByte& channel, const LNet2Byte& type, const Args & ...args)
+	{
+		Message message = Message::createByArgs(true, channel, type, args...);
+		ENetPacket* packet = message.toNetworkPacket();
+		enet_peer_send(clients[clientID], channel, packet);
+	}
+	template<typename ...Args>
+	void Server::sendUnreliableClient(const LNet4Byte& clientID, const LNetByte& channel, const LNet2Byte& type, const Args & ...args)
+	{
+		Message message = Message::createByArgs(false, channel, type, args...);
+		ENetPacket* packet = message.toNetworkPacket();
+		enet_peer_send(clients[clientID], channel, packet);
+	}
+
+	template<typename ...Args>
+	void Server::sendReliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args & ...args)
+	{
+		Message message = Message::createByArgs(true, channel, type, args...);
+
+		for (auto& client : clients)
+		{
+			if (client.first != excludedClientID)
+			{
+				ENetPacket* packet = message.toNetworkPacket();
+				enet_peer_send(client.second, channel, packet);
+			}
+		}
+	}
+	template<typename ...Args>
+	void Server::sendUnreliableBroadcastExcept(const LNet4Byte& excludedClientID, const LNetByte& channel, const LNet2Byte& type, const Args & ...args)
+	{
+		Message message = Message::createByArgs(false, channel, type, args...);
+
+		for (auto& client : clients)
+		{
+			if (client.first != excludedClientID)
+			{
+				ENetPacket* packet = message.toNetworkPacket();
+				enet_peer_send(client.second, channel, packet);
+			}
+		}
+	}
+
+	template<typename ...Args>
+	void Server::sendReliableBroadcast(const LNetByte& channel, const LNet2Byte& type, const Args & ...args)
+	{
+		Message message = Message::createByArgs(true, channel, type, args...);  // Create reliable message
+		ENetPacket* packet = message.toNetworkPacket();
+		enet_host_broadcast(host, channel, packet);
+	}
+	template<typename ...Args>
+	void Server::sendUnreliableBroadcast(const LNetByte& channel, const LNet2Byte& type, const Args & ...args)
+	{
+		Message message = Message::createByArgs(false, channel, type, args...);  // Create unreliable message
+		ENetPacket* packet = message.toNetworkPacket();
+		enet_host_broadcast(host, channel, packet);
+	}
+
 }
 
 #endif

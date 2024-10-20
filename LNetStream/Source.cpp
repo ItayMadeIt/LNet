@@ -33,7 +33,7 @@ int main()
         {
             Server server(1000, 254);
 
-            server.init(port);
+            server.listen(port);
 
 
             server.setMessageCallback(helloMessage,
